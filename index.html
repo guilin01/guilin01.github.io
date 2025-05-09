@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基差数据可视化</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.2/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2ecc71;
+            --dark-color: #2c3e50;
+            --light-color: #ecf0f1;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+            --border-color: #dee2e6;
+        }
+
+        .dark-mode {
+            --primary-color: #3a7bd5;
+            --secondary-color: #00d2ff;
+            --dark-color: #f8f9fa;
+            --light-color: #2c3e50;
+            --bg-color: #1a1a1a;
+            --card-bg: #2d2d2d;
+            --text-color: #f0f0f0;
+            --border-color: #444444;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: none;
+            background-color: var(--card-bg);
+            transition: all 0.3s ease;
+        }
+
+        .card-header {
+            background-color: var(--primary-color);
+            color: white;
+            border-radius: 10px 10px 0 0 !important;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        #chart-container {
+            height: 70vh;
+            min-height: 500px;
+        }
+
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            color: white;
+            font-size: 1.5rem;
+        }
+
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+            margin-right: 15px;
+        }
+
+        .control-btn {
+            margin: 0 5px;
+            transition: all 0.3s;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, var(--bg-color) 0%, var(--border-color) 100%);
+            border-left: 4px solid var(--primary-color);
+            transition: all 0.3s ease;
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--text-color);
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-color);
+            opacity: 0.7;
+        }
+
+        .form-select, .form-control {
+            border-radius: 5px !important;
+            border: 1px solid var(--border-color) !important;
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
+        .form-label {
+            color: var(--text-color);
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .btn-success {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+
+        .settings-panel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100vh;
+            background-color: var(--card-bg);
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            padding: 20px;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+        }
+
+        .settings-panel.open {
+            right: 0;
+        }
+
+        .settings-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
+
+        .settings-overlay.active {
+            display: block;
+        }
+
+        .color-option {
+            width: 30px;
+            height: 30px;
+            display: inline-block;
+            margin-right: 10px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--border-color);
+        }
+
+        .color-option.selected {
+            border-color: var(--primary-color);
+            transform: scale(1.1);
+        }
+
+        .theme-toggle {
+            cursor: pointer;
+            font-size: 1.5rem;
+            margin-left: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading" class="d-none">
+        <div class="spinner-border" role="status"></div>
+        <span>正在加载数据，请稍候...</span>
+    </div>
+
+    <div id="settingsOverlay" class="settings-overlay"></div>
+
+    <div class="settings-panel" id="settingsPanel">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4>设置面板</h4>
+            <button id="closeSettings" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <div class="mb-4">
+            <h5>自动刷新设置</h5>
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="autoRefreshToggle">
+                <label class="form-check-label" for="autoRefreshToggle">启用自动刷新</label>
+            </div>
+            <div class="mb-3" id="refreshIntervalGroup">
+                <label for="refreshInterval" class="form-label">刷新间隔（秒）</label>
+                <input type="number" class="form-control" id="refreshInterval" min="5" max="3600" value="30">
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <h5>折线颜色</h5>
+            <div class="d-flex flex-wrap">
+                <div class="color-option selected" style="background-color: #2ecc71;" data-color="#2ecc71"></div>
+                <div class="color-option" style="background-color: #3498db;" data-color="#3498db"></div>
+                <div class="color-option" style="background-color: #e74c3c;" data-color="#e74c3c"></div>
+                <div class="color-option" style="background-color: #9b59b6;" data-color="#9b59b6"></div>
+                <div class="color-option" style="background-color: #f39c12;" data-color="#f39c12"></div>
+                <div class="color-option" style="background-color: #1abc9c;" data-color="#1abc9c"></div>
+            </div>
+            <div class="mt-3">
+                <label for="customColor" class="form-label">或自定义颜色：</label>
+                <input type="color" class="form-control form-control-color" id="customColor" value="#2ecc71">
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <h5>主题设置</h5>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="darkModeToggle">
+                <label class="form-check-label" for="darkModeToggle">夜间模式</label>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <h5>图表设置</h5>
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="showMarkersToggle" checked>
+                <label class="form-check-label" for="showMarkersToggle">显示数据点标记</label>
+            </div>
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="smoothLineToggle" checked>
+                <label class="form-check-label" for="smoothLineToggle">平滑曲线</label>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="showExtremesToggle" checked>
+                <label class="form-check-label" for="showExtremesToggle">显示极值点</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="container-fluid py-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>基差数据可视化工具</span>
+                        <div>
+                            <button id="settingsBtn" class="btn btn-sm btn-primary control-btn">
+                                <i class="bi bi-gear"></i> 设置
+                            </button>
+                            <button id="themeToggle" class="btn btn-sm btn-primary control-btn theme-toggle">
+                                <i class="bi bi-moon"></i>
+                            </button>
+                            <button id="exportData" class="btn btn-sm btn-success control-btn" disabled>
+                                <i class="bi bi-file-earmark-spreadsheet"></i> 导出CSV
+                            </button>
+                            <button id="exportImage" class="btn btn-sm btn-success control-btn" disabled>
+                                <i class="bi bi-image"></i> 导出图片
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-4">
+                                <label for="dbFile" class="form-label">数据库文件</label>
+                                <input type="file" class="form-control" id="dbFile" accept=".sqlite,.db">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="tableSelect" class="form-label">数据表</label>
+                                <select class="form-select" id="tableSelect" disabled>
+                                    <option value="">请先上传数据库</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="chartType" class="form-label">图表类型</label>
+                                <select class="form-select" id="chartType">
+                                    <option value="line">折线图</option>
+                                    <option value="bar">柱状图</option>
+                                    <option value="scatter">散点图</option>
+                                    <option value="area">面积图</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button id="refreshBtn" class="btn btn-primary w-100" disabled>刷新</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-10">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>数据可视化</span>
+                            <div id="refreshStatus" class="text-muted small"></div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-2">
+                <div class="card">
+                    <div class="card-header">数据统计</div>
+                    <div class="card-body" id="statsPanel">
+                        <div class="text-center text-muted my-5" id="statsPlaceholder">
+                            请先加载数据...
+                        </div>
+                        <div id="statsContent" class="d-none">
+                            <div class="mb-3">
+                                <h6 class="stat-label">数据概览</h6>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">数据点数</div>
+                                    <div class="stat-value" id="stat-count">0</div>
+                                </div>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">日期范围</div>
+                                    <div class="stat-value" id="stat-range">-</div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <h6 class="stat-label">全局统计</h6>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">最小值</div>
+                                    <div class="stat-value" id="stat-min">-</div>
+                                </div>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">最大值</div>
+                                    <div class="stat-value" id="stat-max">-</div>
+                                </div>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">平均值</div>
+                                    <div class="stat-value" id="stat-avg">-</div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <h6 class="stat-label">最近一天统计</h6>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">日期</div>
+                                    <div class="stat-value" id="stat-date">-</div>
+                                </div>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">最高值</div>
+                                    <div class="stat-value" id="stat-day-max">-</div>
+                                </div>
+                                <div class="stat-card p-2 mb-2">
+                                    <div class="stat-label">最低值</div>
+                                    <div class="stat-value" id="stat-day-min">-</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let db = null;
+        let SQL = null;
+        let currentData = null;
+        let chart = null;
+        let autoRefreshTimer = null;
+        let currentLineColor = '#2ecc71';
+        let isDarkMode = false;
+        let lastFileData = null;
+
+        // 显示加载状态
+        function showLoading() {
+            document.getElementById('loading').classList.remove('d-none');
+        }
+
+        // 隐藏加载状态
+        function hideLoading() {
+            document.getElementById('loading').classList.add('d-none');
+        }
+
+        // 格式化时间显示（精确到秒）
+        function formatTime(timeValue) {
+            const date = new Date(timeValue);
+            return isNaN(date.getTime()) ? timeValue : 
+                `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+        }
+
+        // 格式化日期显示
+        function formatDate(timeValue) {
+            const date = new Date(timeValue);
+            return isNaN(date.getTime()) ? timeValue : date.toLocaleDateString();
+        }
+
+        // 获取CSS变量值
+        function getCssVariable(name) {
+            return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        }
+
+        // 切换主题
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('dark-mode');
+            document.getElementById('darkModeToggle').checked = isDarkMode;
+            
+            // 更新图表主题
+            if (chart) {
+                chart.dispose();
+                chart = echarts.init(document.getElementById('chart-container'), isDarkMode ? 'dark' : null);
+                if (currentData) {
+                    renderChart(currentData);
+                }
+            }
+            
+            // 更新图标
+            const themeIcon = document.querySelector('#themeToggle i');
+            themeIcon.classList.toggle('bi-moon');
+            themeIcon.classList.toggle('bi-sun');
+            
+            localStorage.setItem('darkMode', isDarkMode);
+        }
+
+        // 设置自动刷新
+        function setupAutoRefresh() {
+            const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+            const refreshIntervalInput = document.getElementById('refreshInterval');
+            const refreshStatus = document.getElementById('refreshStatus');
+            
+            // 清除现有定时器
+            if (autoRefreshTimer) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+            
+            // 如果自动刷新开启，设置新定时器
+            if (autoRefreshToggle.checked && currentData) {
+                const interval = parseInt(refreshIntervalInput.value) * 1000;
+                if (interval < 5000) {
+                    alert('刷新间隔不能小于5秒');
+                    refreshIntervalInput.value = 5;
+                    return;
+                }
+                
+                autoRefreshTimer = setInterval(() => {
+                    // 触发刷新按钮的点击事件
+                    document.getElementById('refreshBtn').click();
+                    refreshStatus.textContent = `最后刷新: ${new Date().toLocaleTimeString()}`;
+                }, interval);
+                
+                refreshStatus.textContent = `自动刷新: 每 ${refreshIntervalInput.value} 秒`;
+            } else {
+                refreshStatus.textContent = '';
+            }
+        }
+
+        // 关闭设置面板
+        function closeSettings() {
+            document.getElementById('settingsPanel').classList.remove('open');
+            document.getElementById('settingsOverlay').classList.remove('active');
+        }
+
+        // 加载并渲染数据
+        function loadAndRenderData(tableName) {
+            showLoading();
+            
+            setTimeout(() => {
+                try {
+                    // 获取表结构信息
+                    const schema = db.exec(`PRAGMA table_info("${tableName}")`);
+                    
+                    // 检查列数是否足够
+                    if (!schema[0] || schema[0].values.length < 3) {
+                        alert("表结构不符合要求，需要至少3列（ID, 时间, 数据）");
+                        hideLoading();
+                        return;
+                    }
+                    
+                    // 获取所有数据并按时间排序
+                    const data = db.exec(`SELECT * FROM "${tableName}" ORDER BY ${schema[0].values[1][1]}`);
+                    
+                    if (data.length === 0 || !data[0]) {
+                        alert("表中没有数据");
+                        hideLoading();
+                        return;
+                    }
+
+                    const columns = data[0].columns;
+                    const allRows = data[0].values;
+                    
+                    console.log(`已加载 ${allRows.length} 行数据`);
+
+                    // 处理数据
+                    const processedData = {
+                        tableName: tableName,
+                        columns: columns,
+                        rows: allRows,
+                        seriesSegments: [], // 存储多个连续数据段
+                        timeData: [],
+                        valueData: [],
+                        dailyStats: {}
+                    };
+
+                    // 按日期分组计算极值
+                    const dateMap = {};
+                    
+                    // 用于检测数据间隔和分段
+                    let lastValidTime = null;
+                    const timeThreshold = 2 * 60 * 60 * 1000; // 2小时作为间隔阈值
+                    let currentSegment = [];
+                    
+                    for (let i = 0; i < allRows.length; i++) {
+                        const row = allRows[i];
+                        const timeValue = row[1];  // 第二列为时间
+                        const numValue = parseFloat(row[2]); // 第三列为数值
+                        
+                        if (!isNaN(numValue)) {
+                            const currentTime = new Date(timeValue);
+                            
+                            // 检查时间间隔是否过大
+                            if (lastValidTime && (currentTime - lastValidTime) > timeThreshold) {
+                                // 保存当前段并开始新段
+                                if (currentSegment.length > 0) {
+                                    processedData.seriesSegments.push(currentSegment);
+                                }
+                                currentSegment = [];
+                            }
+                            
+                            currentSegment.push([timeValue, numValue]);
+                            processedData.timeData.push(timeValue);
+                            processedData.valueData.push(numValue);
+                            lastValidTime = currentTime;
+                            
+                            // 计算每日统计
+                            const dateKey = currentTime.toISOString().split('T')[0];
+                            
+                            if (!dateMap[dateKey]) {
+                                dateMap[dateKey] = {
+                                    min: numValue,
+                                    max: numValue,
+                                    minTime: timeValue,
+                                    maxTime: timeValue,
+                                    dateStr: currentTime.toLocaleDateString()
+                                };
+                            } else {
+                                if (numValue < dateMap[dateKey].min) {
+                                    dateMap[dateKey].min = numValue;
+                                    dateMap[dateKey].minTime = timeValue;
+                                }
+                                if (numValue > dateMap[dateKey].max) {
+                                    dateMap[dateKey].max = numValue;
+                                    dateMap[dateKey].maxTime = timeValue;
+                                }
+                            }
+                        }
+                    }
+
+                    // 添加最后一个段
+                    if (currentSegment.length > 0) {
+                        processedData.seriesSegments.push(currentSegment);
+                    }
+
+                    processedData.dailyStats = dateMap;
+                    
+                    if (processedData.seriesSegments.length === 0) {
+                        alert("没有有效数值数据");
+                        hideLoading();
+                        return;
+                    }
+
+                    currentData = processedData;
+                    renderChart(processedData);
+                    updateStatsPanel(processedData);
+                    
+                    document.getElementById('exportData').disabled = false;
+                    document.getElementById('exportImage').disabled = false;
+                    
+                    // 设置自动刷新
+                    setupAutoRefresh();
+                    
+                    hideLoading();
+                } catch (error) {
+                    alert("数据处理失败: " + error.message);
+                    hideLoading();
+                }
+            }, 10);
+        }
+
+        // 渲染图表
+        function renderChart(data) {
+            if (!chart) {
+                chart = echarts.init(document.getElementById('chart-container'), isDarkMode ? 'dark' : null);
+            }
+            
+            // 获取当前CSS变量值
+            const textColor = getCssVariable('--text-color');
+            const cardBg = getCssVariable('--card-bg');
+            const borderColor = getCssVariable('--border-color');
+            
+            const chartType = document.getElementById('chartType').value;
+            const showSymbol = data.timeData.length < 200 && document.getElementById('showMarkersToggle').checked;
+            const smoothLine = document.getElementById('smoothLineToggle').checked;
+            const showExtremes = document.getElementById('showExtremesToggle').checked;
+            
+            // 创建系列数组，每个数据段一个系列
+            const seriesArray = data.seriesSegments.map((segment, index) => {
+                // 计算当前段的极值
+                let segmentMin = Infinity;
+                let segmentMax = -Infinity;
+                let minPoint = null;
+                let maxPoint = null;
+                
+                segment.forEach(point => {
+                    const value = point[1];
+                    if (value < segmentMin) {
+                        segmentMin = value;
+                        minPoint = point;
+                    }
+                    if (value > segmentMax) {
+                        segmentMax = value;
+                        maxPoint = point;
+                    }
+                });
+                
+                // 准备段的极值标记数据
+                const segmentMarkPoints = [];
+                if (showExtremes && minPoint && maxPoint) {
+                    segmentMarkPoints.push({
+                        name: '段最高',
+                        value: '最高: ' + segmentMax.toFixed(2),
+                        coord: maxPoint,
+                        symbol: 'circle',
+                        symbolSize: 10,
+                        itemStyle: { color: '#e74c3c' },
+                        label: { 
+                            show: true,
+                            formatter: '{b}',
+                            position: 'top'
+                        }
+                    });
+                    segmentMarkPoints.push({
+                        name: '段最低',
+                        value: '最低: ' + segmentMin.toFixed(2),
+                        coord: minPoint,
+                        symbol: 'circle',
+                        symbolSize: 10,
+                        itemStyle: { color: '#3498db' },
+                        label: { 
+                            show: true,
+                            formatter: '{b}',
+                            position: 'bottom'
+                        }
+                    });
+                }
+
+                return {
+                    name: data.columns[2] + (data.seriesSegments.length > 1 ? ` (段${index + 1})` : ''),
+                    type: chartType === 'area' ? 'line' : chartType,
+                    data: segment,
+                    showSymbol: showSymbol,
+                    smooth: smoothLine,
+                    lineStyle: {
+                        width: chartType === 'line' || chartType === 'area' ? 3 : 0,
+                        color: currentLineColor
+                    },
+                    areaStyle: chartType === 'area' ? {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: `${currentLineColor}80` },
+                            { offset: 1, color: `${currentLineColor}10` }
+                        ])
+                    } : undefined,
+                    markPoint: showExtremes ? {
+                        data: segmentMarkPoints,
+                        symbolSize: 12,
+                        label: {
+                            color: isDarkMode ? '#fff' : '#000',
+                            padding: [3, 5],
+                            borderRadius: 4,
+                            backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)'
+                        }
+                    } : undefined,
+                    markLine: showExtremes ? {
+                        silent: true,
+                        data: [
+                            { type: 'average', name: '平' }
+                        ],
+                        label: {
+                            position: 'end',
+                            formatter: '{b}: {c}',
+                            color: isDarkMode ? '#fff' : '#000',
+                            backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)',
+                            padding: [3, 5],
+                            borderRadius: 4
+                        },
+                        lineStyle: {
+                            color: '#e67e22'
+                        }
+                    } : undefined,
+                    itemStyle: {
+                        color: currentLineColor
+                    }
+                };
+            });
+
+            // 准备全局极值标记数据
+            const globalMarkPoints = [];
+            if (showExtremes) {
+                Object.values(data.dailyStats).forEach(stat => {
+                    globalMarkPoints.push({
+                        name: '日最高',
+                        value: '最高: ' + stat.max.toFixed(2),
+                        coord: [stat.maxTime, stat.max],
+                        symbol: 'circle',
+                        symbolSize: 10,
+                        itemStyle: { color: '#e74c3c' },
+                        label: { 
+                            show: true,
+                            formatter: '{b}',
+                            position: 'top'
+                        }
+                    });
+                    globalMarkPoints.push({
+                        name: '日最低',
+                        value: '最低: ' + stat.min.toFixed(2),
+                        coord: [stat.minTime, stat.min],
+                        symbol: 'circle',
+                        symbolSize: 10,
+                        itemStyle: { color: '#3498db' },
+                        label: { 
+                            show: true,
+                            formatter: '{b}',
+                            position: 'bottom'
+                        }
+                    });
+                });
+            }
+
+            // 添加一个额外的系列用于显示全局极值点
+            if (showExtremes && globalMarkPoints.length > 0) {
+                seriesArray.push({
+                    name: '全局极值',
+                    type: 'scatter',
+                    data: [],
+                    markPoint: {
+                        data: globalMarkPoints.slice(0, 20), // 限制标记点数量
+                        symbolSize: 12,
+                        label: {
+                            color: '#fff',
+                            padding: [3, 5],
+                            borderRadius: 4
+                        }
+                    },
+                    itemStyle: {
+                        color: 'transparent'
+                    }
+                });
+            }
+
+            const option = {
+                title: {
+                    text: `${data.tableName} 基差数据`,
+                    subtext: `数据量: ${data.timeData.length} 条 | 时间范围: ${formatDate(data.timeData[0])} 至 ${formatDate(data.timeData[data.timeData.length-1])}`,
+                    left: 'center',
+                    textStyle: {
+                        fontSize: 18,
+                        fontWeight: 'bold',
+                        color: isDarkMode ? '#fff' : '#000'
+                    },
+                    subtextStyle: {
+                        color: isDarkMode ? '#fff' : '#000'
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: params => {
+                        const timeStr = formatTime(params[0].data[0]);
+                        const value = params[0].data[1];
+                        const date = new Date(params[0].data[0]);
+                        const dateKey = date.toISOString().split('T')[0];
+                        const dailyStat = data.dailyStats[dateKey];
+                        
+                        let extraInfo = '';
+                        if (dailyStat && showExtremes) {
+                            if (value === dailyStat.max) {
+                                extraInfo = `<br/><span style="color:#e74c3c;font-weight:bold;">↗ 当日最高值</span>`;
+                            } else if (value === dailyStat.min) {
+                                extraInfo = `<br/><span style="color:#3498db;font-weight:bold;">↘ 当日最低值</span>`;
+                            }
+                        }
+                        
+                        return `<div style="font-weight:bold;">${formatDate(params[0].data[0])} ${timeStr}</div>
+                                <div>数值: <span style="font-weight:bold;">${value.toFixed(2)}</span></div>
+                                ${extraInfo}`;
+                    },
+                    axisPointer: {
+                        animation: false
+                    },
+                    backgroundColor: cardBg,
+                    borderColor: borderColor,
+                    textStyle: {
+                        color: textColor
+                    }
+                },
+                legend: {
+                    data: seriesArray.map(s => s.name),
+                    top: 40,
+                    textStyle: {
+                        color: isDarkMode ? '#fff' : '#000'
+                    }
+                },
+                xAxis: {
+                    type: 'time',
+                    name: '时间',
+                    nameLocation: 'middle',
+                    nameGap: 30,
+                    axisLabel: {
+                        formatter: function(value) {
+                            return formatTime(value);
+                        },
+                        rotate: 45,
+                        color: textColor
+                    },
+                    axisLine: {
+                        lineStyle: {
+                            color: borderColor
+                        }
+                    },
+                    splitLine: {
+                        lineStyle: {
+                            color: borderColor,
+                            opacity: 0.5
+                        }
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: data.columns[2],
+                    nameLocation: 'middle',
+                    nameGap: 40,
+                    axisLine: {
+                        lineStyle: {
+                            color: borderColor
+                        }
+                    },
+                    axisLabel: {
+                        color: textColor
+                    },
+                    splitLine: {
+                        lineStyle: {
+                            color: borderColor,
+                            type: 'dashed',
+                            opacity: 0.5
+                        }
+                    }
+                },
+                series: seriesArray,
+                dataZoom: [{
+                    type: 'inside',
+                    start: 0,
+                    end: 100,
+                    zoomLock: false
+                }, {
+                    type: 'slider',
+                    start: 0,
+                    end: 100,
+                    bottom: 30,
+                    height: 20,
+                    handleSize: '80%',
+                    handleStyle: {
+                        color: '#fff',
+                        shadowBlur: 3,
+                        shadowColor: 'rgba(0, 0, 0, 0.6)',
+                        shadowOffsetX: 2,
+                        shadowOffsetY: 2
+                    },
+                    textStyle: {
+                        color: textColor
+                    }
+                }],
+                grid: {
+                    top: 100,
+                    left: 60,
+                    right: 60,
+                    bottom: 80,
+                    containLabel: false
+                },
+                backgroundColor: 'transparent'
+            };
+
+            chart.setOption(option, true);
+            window.addEventListener('resize', function() {
+                chart.resize();
+            });
+        }
+
+        // 更新统计面板
+        function updateStatsPanel(data) {
+            const statsPanel = document.getElementById('statsPanel');
+            const statsPlaceholder = document.getElementById('statsPlaceholder');
+            const statsContent = document.getElementById('statsContent');
+            
+            if (Object.keys(data.dailyStats).length === 0) {
+                statsPlaceholder.classList.remove('d-none');
+                statsContent.classList.add('d-none');
+                return;
+            }
+            
+            // 计算全局统计
+            const values = data.valueData;
+            const globalMin = Math.min(...values);
+            const globalMax = Math.max(...values);
+            const globalAvg = values.reduce((a, b) => a + b, 0) / values.length;
+            
+            // 获取最近一天的统计
+            const dates = Object.keys(data.dailyStats).sort();
+            const lastDate = dates[dates.length - 1];
+            const lastStat = data.dailyStats[lastDate];
+            
+            // 更新DOM元素
+            document.getElementById('stat-count').textContent = values.length;
+            document.getElementById('stat-range').textContent = 
+                `${formatDate(data.timeData[0])} 至 ${formatDate(data.timeData[data.timeData.length-1])}`;
+            document.getElementById('stat-min').textContent = globalMin.toFixed(2);
+            document.getElementById('stat-max').textContent = globalMax.toFixed(2);
+            document.getElementById('stat-avg').textContent = globalAvg.toFixed(2);
+            document.getElementById('stat-date').textContent = lastStat.dateStr;
+            document.getElementById('stat-day-max').textContent = 
+                `${lastStat.max.toFixed(2)} (${formatTime(lastStat.maxTime)})`;
+            document.getElementById('stat-day-min').textContent = 
+                `${lastStat.min.toFixed(2)} (${formatTime(lastStat.minTime)})`;
+            
+            statsPlaceholder.classList.add('d-none');
+            statsContent.classList.remove('d-none');
+        }
+
+        // 初始化事件监听
+        function initEventListeners() {
+            // 文件上传
+            document.getElementById('dbFile').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                showLoading();
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        const uInt8Array = new Uint8Array(reader.result);
+                        lastFileData = uInt8Array;
+                        // 先关闭现有数据库连接
+                        if (db) {
+                            db.close();
+                        }
+                        db = new SQL.Database(uInt8Array);
+                        
+                        // 获取所有表名
+                        const result = db.exec(`
+                            SELECT name 
+                            FROM sqlite_master 
+                            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        `);
+                        
+                        const select = document.getElementById('tableSelect');
+                        select.innerHTML = '<option value="">选择数据表</option>';
+                        if (result[0]?.values) {
+                            result[0].values.forEach(table => {
+                                const option = document.createElement('option');
+                                option.value = table[0];
+                                option.textContent = table[0];
+                                select.appendChild(option);
+                            });
+                        }
+                        select.disabled = false;
+                        document.getElementById('refreshBtn').disabled = false;
+                    } catch (error) {
+                        console.error("数据库错误:", error);
+                        alert("数据库处理失败: " + error.message);
+                    } finally {
+                        hideLoading();
+                    }
+                };
+                reader.onerror = () => {
+                    alert("文件读取失败");
+                    hideLoading();
+                };
+                reader.readAsArrayBuffer(file);
+            });
+
+            // 刷新按钮 - 简化版本
+            document.getElementById('refreshBtn').addEventListener('click', function() {
+                // 提示用户重新选择文件
+                alert("要获取最新数据，请重新选择数据库文件");
+                
+                // 清除当前文件选择，以便用户可以重新选择同一个文件
+                document.getElementById('dbFile').value = '';
+                
+                // 聚焦文件输入框
+                document.getElementById('dbFile').click();
+            });
+
+            // 表选择变化
+            document.getElementById('tableSelect').addEventListener('change', function() {
+                const tableName = this.value;
+                if (tableName && db) {
+                    loadAndRenderData(tableName);
+                }
+            });
+
+            // 图表类型变化
+            document.getElementById('chartType').addEventListener('change', function() {
+                if (currentData) {
+                    renderChart(currentData);
+                }
+            });
+
+            // 导出数据
+            document.getElementById('exportData').addEventListener('click', function() {
+                if (!currentData) return;
+                
+                const csvContent = currentData.columns.join(',') + '\n' +
+                    currentData.rows.map(row => 
+                        row.map(cell => 
+                            typeof cell === 'string' ? `"${cell.replace(/"/g, '""')}"` : cell
+                        ).join(',')
+                    ).join('\n');
+                
+                const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'});
+                saveAs(blob, `${currentData.tableName}_data_${new Date().toISOString().slice(0,10)}.csv`);
+            });
+
+            // 导出图片
+            document.getElementById('exportImage').addEventListener('click', function() {
+                if (!chart) return;
+                
+                const img = new Image();
+                img.src = chart.getDataURL({
+                    type: 'png',
+                    pixelRatio: 2,
+                    backgroundColor: isDarkMode ? '#2d2d2d' : '#fff'
+                });
+                
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = isDarkMode ? '#2d2d2d' : '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+                    
+                    canvas.toBlob(function(blob) {
+                        saveAs(blob, `${currentData.tableName || 'chart'}_${new Date().toISOString().slice(0,10)}.png`);
+                    });
+                };
+            });
+
+            // 设置按钮
+            document.getElementById('settingsBtn').addEventListener('click', function() {
+                document.getElementById('settingsPanel').classList.add('open');
+                document.getElementById('settingsOverlay').classList.add('active');
+            });
+
+            // 关闭设置
+            document.getElementById('closeSettings').addEventListener('click', closeSettings);
+            document.getElementById('settingsOverlay').addEventListener('click', closeSettings);
+
+            // 主题切换
+            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+            document.getElementById('darkModeToggle').addEventListener('change', toggleTheme);
+
+            // 颜色选择
+            document.querySelectorAll('.color-option').forEach(option => {
+                option.addEventListener('click', function() {
+                    document.querySelectorAll('.color-option').forEach(opt => {
+                        opt.classList.remove('selected');
+                    });
+                    this.classList.add('selected');
+                    currentLineColor = this.dataset.color;
+                    document.getElementById('customColor').value = currentLineColor;
+                    
+                    if (chart && currentData) {
+                        renderChart(currentData);
+                    }
+                });
+            });
+
+            // 自定义颜色
+            document.getElementById('customColor').addEventListener('input', function() {
+                currentLineColor = this.value;
+                document.querySelectorAll('.color-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                
+                if (chart && currentData) {
+                    renderChart(currentData);
+                }
+            });
+
+            // 自动刷新设置
+            document.getElementById('autoRefreshToggle').addEventListener('change', function() {
+                document.getElementById('refreshIntervalGroup').style.display = 
+                    this.checked ? 'block' : 'none';
+                setupAutoRefresh();
+            });
+
+            document.getElementById('refreshInterval').addEventListener('change', setupAutoRefresh);
+
+            // 图表设置
+            document.getElementById('showMarkersToggle').addEventListener('change', function() {
+                if (currentData) {
+                    renderChart(currentData);
+                }
+            });
+
+            document.getElementById('smoothLineToggle').addEventListener('change', function() {
+                if (currentData) {
+                    renderChart(currentData);
+                }
+            });
+
+            document.getElementById('showExtremesToggle').addEventListener('change', function() {
+                if (currentData) {
+                    renderChart(currentData);
+                }
+            });
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化SQL.js
+            initSqlJs({
+                locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+            }).then(sql => {
+                SQL = sql;
+                document.getElementById('dbFile').disabled = false;
+                console.log("SQL.js 初始化完成");
+                
+                // 初始化事件监听
+                initEventListeners();
+                
+                // 检查本地存储中的主题偏好
+                if (localStorage.getItem('darkMode') === 'true') {
+                    toggleTheme();
+                }
+                
+                // 初始化设置面板状态
+                document.getElementById('refreshIntervalGroup').style.display = 
+                    document.getElementById('autoRefreshToggle').checked ? 'block' : 'none';
+            }).catch(error => {
+                console.error("SQL.js 初始化失败:", error);
+                alert("数据库引擎加载失败，请刷新页面重试");
+            });
+        });
+    </script>
+</body>
+</html>
